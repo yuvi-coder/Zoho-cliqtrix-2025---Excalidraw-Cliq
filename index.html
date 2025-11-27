@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excalidraw for Zoho Cliq</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        #container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        #excalidraw-container {
+            flex: 1;
+            position: relative;
+        }
+        #toolbar {
+            background: #1a73e8;
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        #toolbar h3 {
+            color: white;
+            font-size: 16px;
+            font-weight: 500;
+        }
+        .btn-group {
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: white;
+            color: #1a73e8;
+        }
+        .btn-primary:hover {
+            background: #f1f3f4;
+        }
+        .btn-secondary {
+            background: rgba(255,255,255,0.2);
+            color: white;
+        }
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.3);
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: #5f6368;
+        }
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #1a73e8;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@excalidraw/excalidraw/dist/excalidraw.production.min.js"></script>
+</head>
+<body>
+    <div id="container">
+        <div id="toolbar">
+            <h3>✏️ Draw in Cliq</h3>
+            <div class="btn-group">
+                <button class="btn-secondary" onclick="exportDrawing('png')">Export PNG</button>
+                <button class="btn-secondary" onclick="exportDrawing('svg')">Export SVG</button>
+                <button class="btn-primary" onclick="saveToCliq()">Save to Cliq</button>
+            </div>
+        </div>
+        <div id="excalidraw-container">
+            <div id="loading">
+                <div class="spinner"></div>
+                <p>Loading Excalidraw...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { Excalidraw, exportToCanvas, exportToSvg } = ExcalidrawLib;
+        let excalidrawAPI = null;
+
+        // Initialize Excalidraw
+        const App = () => {
+            return React.createElement(Excalidraw, {
+                excalidrawAPI: (api) => {
+                    excalidrawAPI = api;
+                    document.getElementById('loading').style.display = 'none';
+                },
+                initialData: getInitialData(),
+                UIOptions: {
+                    canvasActions: {
+                        changeViewBackgroundColor: true,
+                        clearCanvas: true,
+                        export: false,
+                        loadScene: true,
+                        saveToActiveFile: false,
+                    }
+                }
+            });
+        };
+
+        // Get initial data from URL parameters or localStorage
+        function getInitialData() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const drawingId = urlParams.get('id');
+            
+            if (drawingId) {
+                const saved = localStorage.getItem('drawing_' + drawingId);
+                if (saved) {
+                    return JSON.parse(saved);
+                }
+            }
+            
+            return {
+                elements: [],
+                appState: {
+                    viewBackgroundColor: "#ffffff"
+                }
+            };
+        }
+
+        // Export drawing as image
+        async function exportDrawing(format) {
+            if (!excalidrawAPI) return;
+            
+            const elements = excalidrawAPI.getSceneElements();
+            const appState = excalidrawAPI.getAppState();
+            
+            try {
+                if (format === 'png') {
+                    const canvas = await exportToCanvas({
+                        elements,
+                        appState,
+                        files: excalidrawAPI.getFiles(),
+                    });
+                    
+                    canvas.toBlob((blob) => {
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = 'cliq-drawing.png';
+                        a.click();
+                    });
+                } else if (format === 'svg') {
+                    const svg = await exportToSvg({
+                        elements,
+                        appState,
+                        files: excalidrawAPI.getFiles(),
+                    });
+                    
+                    const svgString = new XMLSerializer().serializeToString(svg);
+                    const blob = new Blob([svgString], { type: 'image/svg+xml' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'cliq-drawing.svg';
+                    a.click();
+                }
+            } catch (error) {
+                console.error('Export error:', error);
+                alert('Failed to export drawing');
+            }
+        }
+
+        // Save to Cliq
+        async function saveToCliq() {
+            if (!excalidrawAPI) return;
+            
+            const elements = excalidrawAPI.getSceneElements();
+            const appState = excalidrawAPI.getAppState();
+            const files = excalidrawAPI.getFiles();
+            
+            // Generate drawing ID
+            const drawingId = 'draw_' + Date.now();
+            
+            // Save to localStorage (temporary)
+            const drawingData = {
+                elements,
+                appState,
+                files
+            };
+            localStorage.setItem('drawing_' + drawingId, JSON.stringify(drawingData));
+            
+            // Export as PNG for preview
+            try {
+                const canvas = await exportToCanvas({
+                    elements,
+                    appState,
+                    files,
+                });
+                
+                canvas.toBlob((blob) => {
+                    // Convert to base64
+                    const reader = new FileReader();
+                    reader.onloadend = function() {
+                        const base64data = reader.result;
+                        
+                        // Send message to parent (Cliq widget)
+                        if (window.parent) {
+                            window.parent.postMessage({
+                                type: 'SAVE_DRAWING',
+                                data: {
+                                    id: drawingId,
+                                    image: base64data,
+                                    drawingData: JSON.stringify(drawingData)
+                                }
+                            }, '*');
+                        }
+                    };
+                    reader.readAsDataURL(blob);
+                });
+            } catch (error) {
+                console.error('Save error:', error);
+                alert('Failed to save drawing');
+            }
+        }
+
+        // Listen for messages from Cliq
+        window.addEventListener('message', (event) => {
+            if (event.data.type === 'LOAD_DRAWING' && excalidrawAPI) {
+                const drawingData = JSON.parse(event.data.data);
+                excalidrawAPI.updateScene(drawingData);
+            }
+        });
+
+        // Render Excalidraw
+        const root = ReactDOM.createRoot(document.getElementById('excalidraw-container'));
+        root.render(React.createElement(App));
+    </script>
+</body>
+</html>
